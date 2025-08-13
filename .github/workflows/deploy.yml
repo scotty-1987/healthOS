@@ -1,0 +1,53 @@
+name: Deploy HealthOS Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      zip_url:
+        description: "Public URL to the repo-ready zip (top-level contains backend/, mobile/...)"
+        required: true
+      commit_message:
+        description: "Commit message"
+        required: false
+        default: "chore: deploy package"
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download package
+        env:
+          ZIP_URL: ${{ inputs.zip_url }}
+        run: |
+          curl -L "$ZIP_URL" -o /tmp/package.zip
+          unzip -o /tmp/package.zip -d /tmp/pkg
+
+      - name: Sync files into repo (keep workflow)
+        run: |
+          rsync -a --delete \
+            --exclude '.git/' \
+            --exclude '.github/workflows/deploy.yml' \
+            /tmp/pkg/ ./
+
+      - name: Commit changes
+        run: |
+          git config user.name "healthOS-bot"
+          git config user.email "actions@github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "${{ inputs.commit_message }}"
+
+      - name: Push to main with PAT
+        run: |
+          git push "https://scotty-1987:${{ secrets.DEPLOY_TOKEN }}@github.com/scotty-1987/healthOS.git" HEAD:main
